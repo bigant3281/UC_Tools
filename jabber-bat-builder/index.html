@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jabber device BAT builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --bg:#E9EDF0; --surface:#F7F9FA; --ink:#16202A; --muted:#5A6B7A; --line:#C9D3DB;
+  --accent:#0B6E78; --accent-ink:#FFFFFF; --accent-soft:#D5E9EB;
+  --ok:#1F7A3A; --warn:#8A5A00; --warn-soft:#F6EAD0; --err:#B3261E; --err-soft:#F7DEDC;
+  --sans:"Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#10161C; --surface:#182129; --ink:#E4EAEF; --muted:#93A3B1; --line:#2C3945;
+    --accent:#4FB3BE; --accent-ink:#0A1A1D; --accent-soft:#16363A;
+    --ok:#6CC98A; --warn:#E0A53A; --warn-soft:#352A12; --err:#F2877E; --err-soft:#3A1B19;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10161C; --surface:#182129; --ink:#E4EAEF; --muted:#93A3B1; --line:#2C3945;
+  --accent:#4FB3BE; --accent-ink:#0A1A1D; --accent-soft:#16363A;
+  --ok:#6CC98A; --warn:#E0A53A; --warn-soft:#352A12; --err:#F2877E; --err-soft:#3A1B19;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans)}
+main{max-width:1180px;margin:0 auto;padding:32px 20px 64px}
+h1{font-size:30px;line-height:1.15;margin:0 0 6px;font-weight:700;letter-spacing:-0.01em}
+h2{font-size:18px;margin:0 0 4px;font-weight:600}
+p{margin:0}
+.lede{color:var(--muted);max-width:68ch}
+section{margin-top:28px}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+.hint{color:var(--muted);font-size:13.5px}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Drop zone */
+.drop{display:flex;align-items:center;gap:18px;flex-wrap:wrap;border:1.5px dashed var(--line);background:var(--surface);border-radius:10px;padding:22px}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop .file-meta{flex:1;min-width:220px}
+.drop strong{display:block}
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:8px 14px;cursor:pointer;font-weight:500}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.error{margin-top:10px;color:var(--err);font-weight:500}
+
+/* Device type tiles */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.tiles{grid-template-columns:1fr}}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 14px 16px;display:flex;flex-direction:column;gap:10px;transition:opacity .15s}
+.tile.off{opacity:.55}
+.tile.off .tile-fields{display:none}
+.tile-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.prefix{font-family:var(--mono);font-weight:800;font-size:40px;line-height:1;letter-spacing:-0.02em;color:var(--accent)}
+.tile.off .prefix{color:var(--muted)}
+.tile-sub{font-size:13px;color:var(--muted);margin-top:4px}
+.switch{position:relative;width:40px;height:22px;flex:none}
+.switch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
+.switch span{position:absolute;inset:0;background:var(--line);border-radius:11px;pointer-events:none;transition:background .15s}
+.switch span::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--surface);transition:transform .15s}
+.switch input:checked+span{background:var(--accent)}
+.switch input:checked+span::after{transform:translateX(18px)}
+.switch input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.tile-fields{display:flex;flex-direction:column;gap:8px}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted)}
+label.f input,label.f select{font-size:13.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;min-width:0}
+label.f input::placeholder{color:var(--muted);opacity:.8}
+
+/* Options */
+.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 20px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
+@media (max-width:900px){.opts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.opts{grid-template-columns:1fr}}
+.opts .span{grid-column:1/-1}
+.check{display:flex;gap:9px;align-items:flex-start;font-size:14px;cursor:pointer}
+.check input{margin-top:3px;accent-color:var(--accent)}
+.check small{display:block;color:var(--muted);font-size:12.5px}
+.subhead{grid-column:1/-1;font-weight:600;font-size:14px;margin-top:6px;padding-top:12px;border-top:1px solid var(--line)}
+.subhead:first-child{margin-top:0;padding-top:0;border-top:0}
+.tokens{font-family:var(--mono);font-size:12px}
+
+/* Summary + table */
+.summary{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;margin-bottom:12px}
+.summary b{font-variant-numeric:tabular-nums}
+.summary .w{color:var(--warn)} .summary .e{color:var(--err)}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
+.toolbar input[type=search]{flex:1;min-width:200px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 10px}
+.table-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;max-height:560px;overflow-y:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap}
+thead th{position:sticky;top:0;background:var(--surface);z-index:1;font-weight:600;font-size:12.5px;color:var(--muted);box-shadow:inset 0 -1px 0 var(--line)}
+tbody tr:last-child td{border-bottom:0}
+tr.skipped td:not(:first-child){color:var(--muted)}
+td.mono,.name-in{font-family:var(--mono);font-size:12.5px}
+.name-in{width:15.5ch;background:transparent;border:1px solid transparent;border-radius:4px;padding:3px 5px;color:var(--ink)}
+.name-in:hover{border-color:var(--line)}
+.name-in:focus{border-color:var(--accent);background:var(--bg);outline:none}
+.cell{display:flex;flex-direction:column;gap:2px}
+.st{font-size:11.5px;line-height:1.3;white-space:normal;max-width:24ch}
+.st.warn{color:var(--warn)} .st.err{color:var(--err)} .st.info{color:var(--muted)}
+td.has-err .name-in{background:var(--err-soft)}
+td.has-warn .name-in{background:var(--warn-soft)}
+.more{padding:10px;color:var(--muted);font-size:13px}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+
+/* Downloads */
+.dl{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.dl .count{font-family:var(--mono);font-size:12px;opacity:.8}
+.note{margin-top:12px;font-size:13.5px;color:var(--muted);max-width:80ch}
+.toast{margin-top:10px;font-size:13.5px;min-height:1.4em}
+.toast.ok{color:var(--ok)} .toast.err{color:var(--err)}
+details.fallback{margin-top:12px}
+details.fallback textarea{width:100%;height:160px;font-family:var(--mono);font-size:12px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Jabber device BAT builder</h1>
+    <p class="lede">Load a CUCM phone export and get Bulk Administration import files for CSF, BOT, TCT and TAB devices. Each soft client inherits the desk phone's owner, lines, device pool and CSS. Everything runs in your browser; the file never leaves this page.</p>
+  </header>
+
+  <section aria-labelledby="s1">
+    <div class="sec-head"><h2 id="s1">Phone export</h2><span class="hint">BAT › Export › Phones (specific details), or any file with the same headers</span></div>
+    <div class="drop" id="drop">
+      <div class="file-meta">
+        <strong id="fileName">No file loaded</strong>
+        <span class="hint" id="fileInfo">Drop a .csv here or choose one.</span>
+      </div>
+      <input type="file" id="fileInput" accept=".csv,text/csv" hidden>
+      <button class="btn primary" id="pick" type="button">Choose CSV</button>
+    </div>
+    <div class="error" id="loadError" hidden></div>
+  </section>
+
+  <section aria-labelledby="s2">
+    <div class="sec-head"><h2 id="s2">Devices to create</h2><span class="hint">Blank fields keep the source phone's value</span></div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section aria-labelledby="s3">
+    <div class="sec-head"><h2 id="s3">Build options</h2></div>
+    <div class="opts" id="opts">
+      <div class="subhead">Device names</div>
+      <label class="f">Build names from
+        <select data-opt="idSource">
+          <option value="owner">Owner User ID, then User ID 1</option>
+          <option value="owner-only">Owner User ID only</option>
+          <option value="user1">User ID 1, then Owner User ID</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" data-opt="stripDomain"><span>Drop anything after @<small>jdoe@ufl.edu becomes JDOE</small></span></label>
+      <label class="check"><input type="checkbox" data-opt="upperCsf"><span>Uppercase CSF names<small>BOT, TCT and TAB are always uppercase A–Z, 0–9</small></span></label>
+      <label class="f span">Description
+        <input data-opt="descTemplate" spellcheck="false">
+        <span class="tokens">{user} {desc} {ext} {label} {device}</span>
+      </label>
+
+      <div class="subhead">What carries over</div>
+      <label class="f">Lines
+        <select data-opt="lines">
+          <option value="all">All lines on the phone</option>
+          <option value="primary">Line 1 only</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" data-opt="keepSpeedDials"><span>Speed dials and BLFs</span></label>
+      <label class="check"><input type="checkbox" data-opt="keepServices"><span>Phone service subscriptions<small>Usually XML services for hardware phones</small></span></label>
+      <label class="check"><input type="checkbox" data-opt="mobilityUser"><span>Set Mobility User ID on BOT and TCT<small>Uses the same user ID as the device name</small></span></label>
+      <label class="check"><input type="checkbox" data-opt="primaryPhone"><span>Set Primary Phone to the desk phone<small>For adjunct device association</small></span></label>
+      <label class="check"><input type="checkbox" data-opt="skipExisting"><span>Skip names already in the export<small>Avoids duplicate-insert errors in BAT</small></span></label>
+
+      <div class="subhead">Override for every new device (optional)</div>
+      <label class="f">Device Pool<input data-ovr="Device Pool" placeholder="Keep source"></label>
+      <label class="f">CSS<input data-ovr="CSS" placeholder="Keep source"></label>
+      <label class="f">Softkey Template<input data-ovr="Softkey Template" placeholder="Keep source"></label>
+      <label class="f">Media Resource Group List<input data-ovr="Media Resource Group List" placeholder="Keep source"></label>
+      <label class="f">Location<input data-ovr="Location" placeholder="Keep source"></label>
+      <label class="f">Device Presence Group<input data-ovr="Device Presence Group" placeholder="Keep source"></label>
+    </div>
+  </section>
+
+  <section aria-labelledby="s4">
+    <div class="sec-head"><h2 id="s4">Preview</h2><span class="hint">Click a name to change it. Untick a row to leave it out.</span></div>
+    <div class="summary" id="summary"></div>
+    <div class="toolbar">
+      <input type="search" id="filter" placeholder="Filter by device, user or extension">
+      <label class="check"><input type="checkbox" id="issuesOnly"><span>Only rows with issues</span></label>
+    </div>
+    <div class="table-wrap"><table id="table"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section aria-labelledby="s5">
+    <div class="sec-head"><h2 id="s5">Download import files</h2></div>
+    <div class="dl" id="dl"></div>
+    <div class="toast" id="toast" role="status"></div>
+    <p class="note">Each file keeps the export's exact header row. Import one file per device type through Bulk Administration › Phones › Insert Phones (specific details), pairing it with a BAT phone template of the same device type. Hardware-only settings such as firmware load, expansion modules, product-specific XML and security credentials are cleared so the BAT template supplies them.</p>
+    <details class="fallback" id="fallback" hidden><summary>Downloads aren't available in this view — copy the CSV text instead</summary><div id="fallbackBody"></div></details>
+  </section>
+</main>
+
+<script>
+(() => {
+"use strict";
+
+const TYPES = [
+  { key:"CSF", name:"Jabber desktop", deviceType:"Cisco Unified Client Services Framework",
+    pbt:"Standard Client Services Framework",
+    sec:"Cisco Unified Client Services Framework - Standard SIP Non-Secure Profile",
+    sip:"Standard SIP Profile", label:"Jabber Desktop", strict:false },
+  { key:"BOT", name:"Jabber for Android", deviceType:"Cisco Dual Mode for Android",
+    pbt:"Standard Dual Mode for Android",
+    sec:"Cisco Dual Mode for Android - Standard SIP Non-Secure Profile",
+    sip:"Standard SIP Profile for Mobile Device", label:"Jabber Android", strict:true },
+  { key:"TCT", name:"Jabber for iPhone", deviceType:"Cisco Dual Mode for iPhone",
+    pbt:"Standard Dual Mode for iPhone",
+    sec:"Cisco Dual Mode for iPhone - Standard SIP Non-Secure Profile",
+    sip:"Standard SIP Profile for Mobile Device", label:"Jabber iPhone", strict:true },
+  { key:"TAB", name:"Jabber for tablet", deviceType:"Cisco Jabber for Tablet",
+    pbt:"Standard Jabber for Tablet",
+    sec:"Cisco Jabber for Tablet - Standard SIP Non-Secure Profile",
+    sip:"Standard SIP Profile for Mobile Device", label:"Jabber Tablet", strict:true },
+];
+const SOFT_TYPES = new Set(TYPES.map(t => t.deviceType.toLowerCase()));
+const SOFT_PREFIX = /^(CSF|BOT|TCT|TAB)/i;
+
+const DEFAULTS = {
+  types: Object.fromEntries(TYPES.map(t => [t.key, {
+    enabled: true, pbt: t.pbt, sec: t.sec, sip: t.sip, cpp: "", label: t.label
+  }])),
+  idSource: "owner", stripDomain: true, upperCsf: true,
+  descTemplate: "{user} - {label}",
+  lines: "all", keepSpeedDials: true, keepServices: false,
+  mobilityUser: true, primaryPhone: false, skipExisting: true,
+  ovr: {}
+};
+const STORE_KEY = "jabber-bat-builder-settings-v1";
+let settings = loadSettings();
+
+const state = { header: [], idx: new Map(), rows: [], fileBase: "phones", excluded: new Set(), edits: {}, lineBlocks: [] };
+let computed = null;
+
+/* ---------- settings persistence ---------- */
+function loadSettings(){
+  const s = JSON.parse(JSON.stringify(DEFAULTS));
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      for (const k of Object.keys(s)) if (k !== "types" && saved[k] !== undefined) s[k] = saved[k];
+      if (saved.types) for (const t of TYPES) if (saved.types[t.key]) Object.assign(s.types[t.key], saved.types[t.key]);
+    }
+  } catch (e) {}
+  return s;
+}
+function saveSettings(){ try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch (e) {} }
+
+/* ---------- CSV ---------- */
+function parseCSV(text){
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = []; let row = []; let f = ""; let q = false; let i = 0; const n = text.length;
+  while (i < n) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i+1] === '"') { f += '"'; i += 2; continue; } q = false; i++; continue; }
+      f += c; i++; continue;
+    }
+    if (c === '"') { q = true; i++; continue; }
+    if (c === ",") { row.push(f); f = ""; i++; continue; }
+    if (c === "\r") { i++; continue; }
+    if (c === "\n") { row.push(f); rows.push(row); row = []; f = ""; i++; continue; }
+    f += c; i++;
+  }
+  if (f !== "" || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => !(r.length === 1 && r[0].trim() === ""));
+}
+function csvField(v){ v = v == null ? "" : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function toCSV(header, rows){ return [header, ...rows].map(r => r.map(csvField).join(",")).join("\r\n") + "\r\n"; }
+
+/* ---------- column helpers ---------- */
+const col = name => state.idx.get(name.trim().toLowerCase());
+const get = (row, name) => { const i = col(name); return i === undefined ? "" : (row[i] ?? "").trim(); };
+function setv(row, name, v){ const i = col(name); if (i !== undefined) row[i] = v; }
+
+function computeLineBlocks(){
+  const h = state.header.map(x => x.trim());
+  const starts = [];
+  h.forEach((name, i) => { const m = /^Directory Number (\d+)$/.exec(name); if (m) starts.push({ n: +m[1], i }); });
+  const blocks = [];
+  starts.forEach((s, k) => {
+    let end = k + 1 < starts.length ? starts[k+1].i : h.length;
+    if (k + 1 === starts.length) {
+      for (let j = s.i + 1; j < h.length; j++) if (!h[j].endsWith(" " + s.n)) { end = j; break; }
+    }
+    blocks.push({ n: s.n, from: s.i, to: end });
+  });
+  state.lineBlocks = blocks;
+}
+
+/* ---------- load ---------- */
+function loadText(text, filename){
+  const err = document.getElementById("loadError");
+  err.hidden = true;
+  const rows = parseCSV(text);
+  if (!rows.length) return showLoadError("That file is empty. Export phones from BAT and load the CSV it produces.");
+  const header = rows[0];
+  const idx = new Map(); header.forEach((h, i) => { const k = h.trim().toLowerCase(); if (!idx.has(k)) idx.set(k, i); });
+  const missing = ["Device Name", "Owner User ID", "Directory Number 1"].filter(n => !idx.has(n.toLowerCase()));
+  if (missing.length) return showLoadError(`This doesn't look like a CUCM phone export: missing ${missing.join(", ")}.`);
+  state.header = header; state.idx = idx;
+  state.rows = rows.slice(1).map(r => { const a = r.slice(0, header.length); while (a.length < header.length) a.push(""); return a; });
+  state.fileBase = (filename || "phones").replace(/\.csv$/i, "").replace(/[^\w.-]+/g, "_") || "phones";
+  state.excluded = new Set(); state.edits = {};
+  computeLineBlocks();
+  document.getElementById("fileName").textContent = filename || "phones.csv";
+  document.getElementById("fileInfo").textContent = `${state.rows.length.toLocaleString()} phone${state.rows.length === 1 ? "" : "s"}, ${header.length} columns`;
+  if (!state.rows.length) document.getElementById("fileInfo").textContent += " — header only, no phones to convert";
+  refresh();
+}
+function showLoadError(msg){ const e = document.getElementById("loadError"); e.textContent = msg; e.hidden = false; }
+
+/* ---------- name + row generation ---------- */
+function userIdFor(row){
+  const owner = get(row, "Owner User ID"), u1 = get(row, "User ID 1");
+  let id = settings.idSource === "owner" ? (owner || u1) : settings.idSource === "user1" ? (u1 || owner) : owner;
+  if (settings.stripDomain && id.includes("@")) id = id.split("@")[0];
+  return id.trim();
+}
+function autoName(t, id){
+  let body = t.strict ? id.toUpperCase().replace(/[^A-Z0-9]/g, "") : id.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!t.strict && settings.upperCsf) body = body.toUpperCase();
+  const full = t.key + body;
+  return { name: full.slice(0, 15), truncated: full.length > 15, changed: body !== (t.strict ? id.toUpperCase() : (settings.upperCsf ? id.toUpperCase() : id)) };
+}
+function validateName(t, name){
+  if (!name) return "Name is required";
+  if (name.length > 15) return "Longer than 15 characters";
+  if (t.strict) {
+    if (!name.startsWith(t.key)) return `Must start with ${t.key}`;
+    if (!/^[A-Z0-9]+$/.test(name)) return "Only A–Z and 0–9 allowed";
+    if (name.length === 3) return "Needs characters after the prefix";
+  } else if (!/^[A-Za-z0-9._-]+$/.test(name)) return "Only letters, digits, . _ - allowed";
+  return null;
+}
+
+function compute(){
+  const enabled = TYPES.filter(t => settings.types[t.key].enabled);
+  const existing = new Set(state.rows.map(r => get(r, "Device Name").toUpperCase()));
+  const sources = [];
+  for (let r = 0; r < state.rows.length; r++) {
+    const row = state.rows[r];
+    const device = get(row, "Device Name"), dtype = get(row, "Device Type");
+    const s = { r, device, dtype, user: userIdFor(row), ext: get(row, "Directory Number 1"), desc: get(row, "Description"), skip: null, out: {} };
+    if (SOFT_TYPES.has(dtype.toLowerCase()) || (!dtype && SOFT_PREFIX.test(device))) s.skip = "Already a Jabber device";
+    else if (!s.user) s.skip = "No owner or user ID";
+    else if (state.excluded.has(r)) s.skip = "Left out";
+    sources.push(s);
+  }
+  // generate names
+  const seen = new Map();
+  for (const s of sources) {
+    if (s.skip) continue;
+    for (const t of enabled) {
+      const key = s.r + "|" + t.key;
+      let name, status = "ok", msg = "";
+      if (state.edits[key] !== undefined) {
+        name = t.strict ? state.edits[key].toUpperCase() : state.edits[key];
+        const v = validateName(t, name); if (v) { status = "err"; msg = v; } else { status = "info"; msg = "Edited"; }
+      } else {
+        const a = autoName(t, s.user); name = a.name;
+        const v = validateName(t, name);
+        if (v) { status = "err"; msg = v; }
+        else if (a.truncated) { status = "warn"; msg = "Cut to 15 characters"; }
+        else if (a.changed) { status = "warn"; msg = "Unsupported characters removed"; }
+      }
+      const o = { name, status, msg, skipped: false };
+      if (status !== "err" && settings.skipExisting && existing.has(name.toUpperCase())) { o.status = "info"; o.msg = "Already exists — skipped"; o.skipped = true; }
+      s.out[t.key] = o;
+      if (!o.skipped && o.status !== "err") {
+        const k = name.toUpperCase();
+        if (!seen.has(k)) seen.set(k, []);
+        seen.get(k).push(o);
+      }
+    }
+  }
+  for (const list of seen.values()) if (list.length > 1) list.forEach(o => { o.status = "err"; o.msg = "Duplicate name — untick one phone or rename"; });
+  // counts
+  const counts = Object.fromEntries(enabled.map(t => [t.key, 0]));
+  let warn = 0, err = 0, skipped = 0, users = 0;
+  for (const s of sources) {
+    if (s.skip) { skipped++; continue; }
+    users++;
+    for (const t of enabled) { const o = s.out[t.key]; if (o.status === "err") err++; else if (o.status === "warn") warn++; if (!o.skipped && o.status !== "err") counts[t.key]++; }
+  }
+  return { enabled, sources, counts, warn, err, skipped, users };
+}
+
+const MOBILITY_COLS = ["Mobility Identity Name","Mobility Identity Destination Number","Mobility Identity Answer Too Soon Timer","Mobility Identity Answer Too Late Timer","Mobility Identity Delay Before Ringing Cell","Mobility Identity Time Zone","Mobility Identity Is Mobile Phone","Mobility Identity Enable Mobile Connect","Mobility Identity Mobility Profile"];
+const HW_CLEAR = ["Phone Load Name","Module 1","Module 2","Module 3","Module 1 Load Name","Module 2 Load Name","Module 3 Load Name",
+  "Authentication String","Certificate Operation","Operation Completes By","Secure Shell User","Secure Shell Password","Digest User",
+  "Extension Mobility","Logout Profile","Packet Capture Mode","Packet Capture Duration","XML","Wireless LAN Profile Group","WiFi Hotspot Profile",
+  "Primary Phone","Mobility User ID","Phone Personalization", ...MOBILITY_COLS];
+
+function buildRow(s, t){
+  const row = state.rows[s.r].slice();
+  const cfg = settings.types[t.key];
+  const h = state.header.map(x => x.trim());
+  for (const c of HW_CLEAR) setv(row, c, "");
+  h.forEach((name, i) => { if (/^(Time Zone|Remote Destination Name|Remote Destination Number|Is Mobile Phone|Answer Too Soon Timer|Answer Too Late Timer|Delay Before Ringing Timer|Enable Mobile Connect) \d+$/.test(name)) row[i] = ""; });
+  if (settings.lines === "primary") for (const b of state.lineBlocks) if (b.n > 1) for (let i = b.from; i < b.to; i++) row[i] = "";
+  if (!settings.keepSpeedDials) h.forEach((name, i) => { if (/^(Speed Dial (Number|Label)|Busy Lamp Field (Label|Destination|Directory Number|Call Pickup)) \d+$/.test(name)) row[i] = ""; });
+  if (!settings.keepServices) h.forEach((name, i) => { if (/^(Service Name|Subscribed Service Name|Subscribed Service URL|SURL Label|SURL Button Index|Parameter Name|Parameter Value) \d+$/.test(name)) row[i] = ""; });
+
+  const name = s.out[t.key].name;
+  setv(row, "Device Name", name);
+  setv(row, "Device Type", t.deviceType);
+  setv(row, "Device Protocol", "SIP");
+  if (cfg.pbt.trim()) setv(row, "Phone Button Template", cfg.pbt.trim());
+  if (cfg.sec.trim()) setv(row, "Device Security Profile", cfg.sec.trim());
+  if (cfg.sip.trim()) setv(row, "SIP Profile", cfg.sip.trim());
+  if (cfg.cpp.trim()) setv(row, "Common Phone Profile", cfg.cpp.trim());
+  for (const [c, v] of Object.entries(settings.ovr || {})) if (v && v.trim()) setv(row, c, v.trim());
+  if (settings.primaryPhone) setv(row, "Primary Phone", s.device);
+  if (settings.mobilityUser && (t.key === "BOT" || t.key === "TCT")) setv(row, "Mobility User ID", s.user);
+  const desc = settings.descTemplate
+    .replaceAll("{user}", s.user).replaceAll("{desc}", s.desc).replaceAll("{ext}", s.ext)
+    .replaceAll("{label}", cfg.label || t.label).replaceAll("{device}", s.device).trim().slice(0, 128);
+  setv(row, "Description", desc);
+  return row;
+}
+
+function outputFor(t){
+  const rows = [];
+  for (const s of computed.sources) {
+    if (s.skip) continue;
+    const o = s.out[t.key];
+    if (!o || o.skipped || o.status === "err") continue;
+    rows.push(buildRow(s, t));
+  }
+  return rows;
+}
+
+/* ---------- UI: tiles ---------- */
+function renderTiles(){
+  const wrap = document.getElementById("tiles");
+  wrap.innerHTML = "";
+  for (const t of TYPES) {
+    const cfg = settings.types[t.key];
+    const el = document.createElement("div");
+    el.className = "tile" + (cfg.enabled ? "" : " off");
+    el.innerHTML = `
+      <div class="tile-top">
+        <div><div class="prefix">${t.key}</div><div class="tile-sub">${t.name}</div></div>
+        <label class="switch" title="Create ${t.key} devices"><input type="checkbox" ${cfg.enabled ? "checked" : ""} aria-label="Create ${t.key} devices"><span></span></label>
+      </div>
+      <div class="tile-fields">
+        <label class="f">Phone Button Template<input data-k="pbt"></label>
+        <label class="f">Device Security Profile<input data-k="sec"></label>
+        <label class="f">SIP Profile<input data-k="sip" placeholder="Keep source"></label>
+        <label class="f">Common Phone Profile<input data-k="cpp" placeholder="Keep source"></label>
+        <label class="f">Description label<input data-k="label"></label>
+      </div>`;
+    el.querySelector(".switch input").addEventListener("change", e => { cfg.enabled = e.target.checked; el.classList.toggle("off", !cfg.enabled); saveSettings(); refresh(); });
+    el.querySelectorAll("input[data-k]").forEach(inp => {
+      inp.value = cfg[inp.dataset.k] ?? "";
+      inp.spellcheck = false;
+      inp.addEventListener("input", () => { cfg[inp.dataset.k] = inp.value; saveSettings(); debounceRefresh(); });
+    });
+    wrap.appendChild(el);
+  }
+}
+
+function bindOptions(){
+  document.querySelectorAll("[data-opt]").forEach(el => {
+    const k = el.dataset.opt;
+    if (el.type === "checkbox") { el.checked = !!settings[k]; el.addEventListener("change", () => { settings[k] = el.checked; saveSettings(); refresh(); }); }
+    else { el.value = settings[k]; el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => { settings[k] = el.value; saveSettings(); debounceRefresh(); }); }
+  });
+  document.querySelectorAll("[data-ovr]").forEach(el => {
+    el.spellcheck = false;
+    el.value = (settings.ovr || {})[el.dataset.ovr] || "";
+    el.addEventListener("input", () => { settings.ovr = settings.ovr || {}; settings.ovr[el.dataset.ovr] = el.value; saveSettings(); debounceRefresh(); });
+  });
+}
+
+/* ---------- UI: preview ---------- */
+const MAX_ROWS = 400;
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+
+function renderSummary(){
+  const el = document.getElementById("summary");
+  if (!state.header.length) { el.innerHTML = ""; return; }
+  const c = computed;
+  const parts = [`<span><b>${c.users}</b> users</span>`];
+  for (const t of c.enabled) parts.push(`<span><b>${c.counts[t.key]}</b> ${t.key}</span>`);
+  if (c.skipped) parts.push(`<span><b>${c.skipped}</b> phones skipped</span>`);
+  if (c.warn) parts.push(`<span class="w"><b>${c.warn}</b> warnings</span>`);
+  if (c.err) parts.push(`<span class="e"><b>${c.err}</b> names need fixing and won't export</span>`);
+  el.innerHTML = parts.join("");
+}
+
+function renderTable(){
+  const thead = document.querySelector("#table thead"), tbody = document.querySelector("#table tbody");
+  const c = computed;
+  thead.innerHTML = `<tr><th><span class="sr" aria-label="Include"></span></th><th>Source phone</th><th>User</th><th>Line 1</th>${c.enabled.map(t => `<th>${t.key}</th>`).join("")}</tr>`;
+  if (!state.header.length) { tbody.innerHTML = `<tr><td colspan="${4 + c.enabled.length}" class="empty">Load a phone export to see the devices that will be created.</td></tr>`; return; }
+  if (!c.enabled.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">Turn on at least one device type above.</td></tr>`; return; }
+  const q = document.getElementById("filter").value.trim().toLowerCase();
+  const issuesOnly = document.getElementById("issuesOnly").checked;
+  let list = c.sources.filter(s => {
+    if (q && !`${s.device} ${s.user} ${s.ext} ${s.desc}`.toLowerCase().includes(q)) return false;
+    if (issuesOnly) { if (s.skip && s.skip !== "Left out") return true; return Object.values(s.out).some(o => o.status === "err" || o.status === "warn"); }
+    return true;
+  });
+  const total = list.length; list = list.slice(0, MAX_ROWS);
+  if (!total) { tbody.innerHTML = `<tr><td colspan="${4 + c.enabled.length}" class="empty">${state.rows.length ? "No rows match." : "This export has headers but no phones."}</td></tr>`; return; }
+  const html = list.map(s => {
+    const include = !state.excluded.has(s.r);
+    const hardSkip = s.skip && s.skip !== "Left out";
+    const cells = c.enabled.map(t => {
+      if (s.skip) return `<td>${t === c.enabled[0] ? `<span class="st info">${esc(s.skip)}</span>` : ""}</td>`;
+      const o = s.out[t.key];
+      const cls = o.status === "err" ? "has-err" : o.status === "warn" ? "has-warn" : "";
+      return `<td class="${cls}"><div class="cell"><input class="name-in" data-r="${s.r}" data-t="${t.key}" value="${esc(o.name)}" maxlength="15" spellcheck="false" aria-label="${t.key} name for ${esc(s.user)}">${o.msg ? `<span class="st ${o.status}">${esc(o.msg)}</span>` : ""}</div></td>`;
+    }).join("");
+    return `<tr class="${s.skip ? "skipped" : ""}"><td><input type="checkbox" data-inc="${s.r}" ${include ? "checked" : ""} ${hardSkip ? "disabled" : ""} aria-label="Include ${esc(s.device)}"></td><td class="mono">${esc(s.device)}<div class="st info">${esc(s.dtype)}</div></td><td class="mono">${esc(s.user)}</td><td class="mono">${esc(s.ext)}</td>${cells}</tr>`;
+  }).join("");
+  tbody.innerHTML = html + (total > MAX_ROWS ? `<tr><td colspan="${4 + c.enabled.length}" class="more">Showing ${MAX_ROWS} of ${total.toLocaleString()} rows. Use the filter to find others — every row is still exported.</td></tr>` : "");
+}
+
+document.querySelector("#table tbody").addEventListener("change", e => {
+  const inc = e.target.dataset.inc;
+  if (inc !== undefined) { e.target.checked ? state.excluded.delete(+inc) : state.excluded.add(+inc); refresh(); return; }
+  if (e.target.classList.contains("name-in")) {
+    const key = e.target.dataset.r + "|" + e.target.dataset.t;
+    const v = e.target.value.trim();
+    if (v === "") delete state.edits[key]; else state.edits[key] = v;
+    refresh(true);
+  }
+});
+document.querySelector("#table tbody").addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.classList.contains("name-in")) e.target.blur();
+});
+
+/* ---------- UI: downloads ---------- */
+let downloads = null;
+function renderDownloads(){
+  const el = document.getElementById("dl");
+  if (!state.header.length) { el.innerHTML = `<span class="hint">Load a phone export first.</span>`; return; }
+  const c = computed;
+  const total = c.enabled.reduce((a, t) => a + c.counts[t.key], 0);
+  el.innerHTML = c.enabled.map(t => `<button class="btn" type="button" data-dl="${t.key}" ${c.counts[t.key] ? "" : "disabled"}>${t.key} CSV <span class="count">${c.counts[t.key]}</span></button>`).join("")
+    + `<button class="btn primary" type="button" data-dl="zip" ${total && c.enabled.length > 1 ? "" : "disabled"}>All files as .zip <span class="count">${total}</span></button>`;
+}
+function toast(msg, kind){ const t = document.getElementById("toast"); t.textContent = msg; t.className = "toast " + (kind || ""); }
+
+async function saveFile(filename, data){
+  if (!downloads) { showFallback(filename, data); return; }
+  try {
+    await downloads.save({ filename, data });
+    toast(`Saved ${filename}`, "ok");
+  } catch (e) {
+    const code = e && e.code;
+    if (code === "declined") toast("Download cancelled.");
+    else if (code === "rate_limited") toast("A save prompt is already open — finish that one first.", "err");
+    else { toast("Downloads aren't available in this view.", "err"); showFallback(filename, data); }
+  }
+}
+function showFallback(filename, data){
+  if (typeof data !== "string") { toast("Downloads aren't available here, and a .zip can't be shown as text. Download each CSV instead.", "err"); return; }
+  const f = document.getElementById("fallback"); f.hidden = false; f.open = true;
+  const body = document.getElementById("fallbackBody");
+  body.innerHTML = `<p class="hint" style="margin:8px 0">${esc(filename)} — select all, copy, and save as a .csv file.</p><textarea readonly></textarea>`;
+  body.querySelector("textarea").value = data;
+}
+
+document.getElementById("dl").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-dl]"); if (!b || b.disabled) return;
+  const which = b.dataset.dl;
+  const stamp = new Date().toISOString().slice(0, 10);
+  if (which === "zip") {
+    if (!window.JSZip) { toast("The zip library didn't load. Download each CSV instead.", "err"); return; }
+    const zip = new JSZip();
+    for (const t of computed.enabled) { const rows = outputFor(t); if (rows.length) zip.file(`${state.fileBase}_${t.key}_${stamp}.csv`, toCSV(state.header, rows)); }
+    const blob = await zip.generateAsync({ type: "blob" });
+    await saveFile(`${state.fileBase}_jabber_${stamp}.zip`, blob);
+  } else {
+    const t = TYPES.find(x => x.key === which);
+    await saveFile(`${state.fileBase}_${t.key}_${stamp}.csv`, toCSV(state.header, outputFor(t)));
+  }
+});
+
+/* ---------- refresh ---------- */
+let timer = null;
+function debounceRefresh(){ clearTimeout(timer); timer = setTimeout(() => refresh(), 180); }
+function refresh(keepFocus){
+  const active = document.activeElement;
+  const focusKey = keepFocus && active && active.classList.contains("name-in") ? active.dataset.r + "|" + active.dataset.t : null;
+  computed = compute();
+  renderSummary(); renderTable(); renderDownloads();
+  if (focusKey) { const [r, t] = focusKey.split("|"); const el = document.querySelector(`.name-in[data-r="${r}"][data-t="${t}"]`); if (el) el.focus(); }
+}
+document.getElementById("filter").addEventListener("input", () => renderTable());
+document.getElementById("issuesOnly").addEventListener("change", () => renderTable());
+
+/* ---------- file input ---------- */
+const drop = document.getElementById("drop"), fileInput = document.getElementById("fileInput");
+document.getElementById("pick").addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => { const f = fileInput.files[0]; if (f) readFile(f); fileInput.value = ""; });
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) readFile(f); });
+function readFile(f){
+  if (!/\.csv$/i.test(f.name) && f.type && !/csv|text/.test(f.type)) return showLoadError("Choose a .csv file exported from CUCM.");
+  const r = new FileReader();
+  r.onload = () => loadText(String(r.result), f.name);
+  r.onerror = () => showLoadError("The file couldn't be read. Try choosing it again.");
+  r.readAsText(f);
+}
+
+/* ---------- init ---------- */
+renderTiles(); bindOptions(); refresh();
+(async () => {
+  try { if (window.claude && typeof window.claude.use === "function") downloads = await window.claude.use("downloads"); } catch (e) { downloads = null; }
+})();
+window.__test = { loadText, compute: () => compute(), outputFor: k => { computed = compute(); return outputFor(TYPES.find(t => t.key === k)); }, state, settings, toCSV };
+})();
+</script>
+</body>
+</html>
