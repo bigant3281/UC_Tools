@@ -1,1 +1,1 @@
-lectern_widget.exe --url "http://<TM-Manager PC IP>:8080/?format=12" --width 520 --height 220
+lectern_widget.exe --clock <TM468 IP> --width 520 --height 220 --options "format=12" --x 1500 --y 0
